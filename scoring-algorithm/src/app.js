@@ -23,10 +23,43 @@ const main = async () => {
       }
       console.log('Found MEDPRIVATE key in app secret');
 
-      // Decrypt the protected integer A
-      const encryptedA = await deserializer.getValue('integerA', 'number');
-      console.log('Successfully decrypted integer A from protected data');
-      inputA = encryptedA;
+      console.log('Available deserializer methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(deserializer)));
+      
+      // Try different approaches to get the protected data
+      let encryptedA = null;
+      
+      try {
+        console.log('Attempting to get integerA as f64...');
+        encryptedA = await deserializer.getValue('integerA', 'f64');
+        console.log('✅ Successfully got integerA as f64:', encryptedA);
+      } catch (f64Error) {
+        console.log('❌ f64 failed:', f64Error.message);
+        
+        try {
+          console.log('Attempting to get integerA as number...');
+          encryptedA = await deserializer.getValue('integerA', 'number');
+          console.log('✅ Successfully got integerA as number:', encryptedA);
+        } catch (numberError) {
+          console.log('❌ number failed:', numberError.message);
+          
+          try {
+            console.log('Attempting to get integerA as string...');
+            encryptedA = await deserializer.getValue('integerA', 'string');
+            console.log('✅ Got integerA as string:', encryptedA);
+            encryptedA = parseFloat(encryptedA);
+          } catch (stringError) {
+            console.log('❌ string failed:', stringError.message);
+            throw new Error(`Could not retrieve integerA with any type: f64(${f64Error.message}), number(${numberError.message}), string(${stringError.message})`);
+          }
+        }
+      }
+      
+      if (encryptedA !== null && !isNaN(encryptedA)) {
+        console.log('Successfully decrypted integer A from protected data');
+        inputA = Math.round(encryptedA); // Convert to integer
+      } else {
+        throw new Error('Retrieved protected data is not a valid number');
+      }
 
     } catch (e) {
       console.log('Could not access protected data, trying requester secret:', e.message);

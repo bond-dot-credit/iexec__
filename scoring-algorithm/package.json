@@ -5,6 +5,7 @@
   "main": "src/app.js",
   "type": "module",
   "dependencies": {
+    "@iexec/dataprotector": "^2.0.0-beta.19",
     "@iexec/dataprotector-deserializer": "^0.1.1",
     "figlet": "^1.8.1"
   }
