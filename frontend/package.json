@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@iexec/dataprotector": "^2.0.0-beta.19",
     "@wagmi/core": "^2.20.3",
     "ethers": "^6.15.0",
     "next": "15.5.2",

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import TriggerTEETask from '@/components/TriggerTEETask'
 import ScoreDisplay from '@/components/ScoreDisplay'
 import ProofDisplay from '@/components/ProofDisplay'
+import TransactionHistory from '@/components/TransactionHistory'
 
 interface TaskResult {
   deal: string
@@ -90,6 +91,11 @@ export default function Home() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Transaction History Section */}
+        <div className="mt-12">
+          <TransactionHistory />
         </div>
 
         {/* Footer */}

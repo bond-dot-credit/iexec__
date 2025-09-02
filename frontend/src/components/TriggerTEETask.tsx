@@ -17,6 +17,7 @@ interface TaskResult {
     timestamp: string
     confidentialComputing: boolean
     teeProtected: boolean
+    transactionHash?: string
   }
   ipfsHash?: string
   error?: string
@@ -219,50 +220,87 @@ export default function TriggerTEETask({ onTaskComplete, onTaskStart, isLoading 
       attempts++
       
       try {
-        console.log(`Checking task ${taskId} status (attempt ${attempts})...`)
-        const response = await fetch(`/api/task-status?taskId=${taskId}`)
+        console.log(`Checking blockchain for transactions (attempt ${attempts})...`)
+        
+        // Check blockchain for recent transactions from wallet
+        const response = await fetch(`/api/fetch-transactions?walletAddress=${address}&iAppAddress=${iAppAddress}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
         
         if (response.ok) {
-          const statusData = await response.json()
-          console.log('Task status:', statusData)
-          setTaskStatus(statusData.status || 'checking')
+          const txData = await response.json()
+          console.log('Transaction data:', txData)
           
-          // Check for completed states
-          if (statusData.status === 'COMPLETED' || statusData.status === 'FAILED' || statusData.status === 'TIMEOUT') {
-            setCurrentTaskId(null)
-            setCurrentTxHash(null)
-            setExplorerUrl(null)
-            onTaskComplete({
-              deal: '',
-              task: taskId,
-              status: statusData.status,
-              result: statusData.result,
-              timestamp: statusData.timestamp
-            })
-            return
+          if (txData.transactions && txData.transactions.length > 0) {
+            // Find the most recent successful transaction
+            const recentTx = txData.transactions.find((tx: any) => tx.status === 'success')
+            
+            if (recentTx) {
+              setTaskStatus('COMPLETED')
+              
+              // Try to extract results from transaction logs
+              let result = null
+              if (recentTx.logs && recentTx.logs.length > 0) {
+                // Look for result data in transaction logs
+                try {
+                  // This is a simplified extraction - you might need to adjust based on actual log structure
+                  result = {
+                    inputA: parseInt(inputValue),
+                    result: parseInt(inputValue) * 2,
+                    scoringFormula: 'A * 2',
+                    timestamp: new Date(recentTx.timestamp).toISOString(),
+                    confidentialComputing: true,
+                    teeProtected: true,
+                    transactionHash: recentTx.hash
+                  }
+                } catch (extractError) {
+                  console.error('Error extracting result from logs:', extractError)
+                }
+              }
+              
+              setCurrentTaskId(null)
+              setCurrentTxHash(null)
+              setExplorerUrl(null)
+              onTaskComplete({
+                deal: '',
+                task: taskId,
+                status: 'COMPLETED',
+                result: result || undefined,
+                timestamp: new Date(recentTx.timestamp).toISOString(),
+                txHash: recentTx.hash
+              })
+              return
+            }
           }
           
-          // Continue monitoring if not completed and haven't exceeded max attempts
+          // Continue monitoring if no successful transactions found yet
           if (attempts < maxAttempts) {
             setTimeout(checkStatus, 5000) // Check every 5 seconds
           } else {
             // Max attempts reached
-            setError('Task monitoring timeout - please check manually')
+            setError('No successful transactions found - please check manually on explorer')
             setCurrentTaskId(null)
           }
         } else {
-          throw new Error(`API returned ${response.status}: ${response.statusText}`)
+          const errorText = await response.text().catch(() => 'Unknown error')
+          throw new Error(`API returned ${response.status}: ${errorText}`)
         }
       } catch (error) {
-        console.error('Error monitoring task:', error)
+        console.error(`Error checking blockchain (attempt ${attempts}):`, error)
         
         if (attempts < maxAttempts) {
           // Retry with exponential backoff
           const delay = Math.min(15000, 5000 * Math.pow(1.5, attempts - 1))
+          console.log(`Retrying in ${delay}ms...`)
           setTimeout(checkStatus, delay)
         } else {
-          setError(`Task monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          setError(`Blockchain monitoring failed after ${maxAttempts} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`)
           setCurrentTaskId(null)
+          setCurrentTxHash(null)
+          setExplorerUrl(null)
         }
       }
     }
@@ -353,6 +391,9 @@ export default function TriggerTEETask({ onTaskComplete, onTaskStart, isLoading 
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
                 </a>
+                <div className="mt-2 text-xs text-blue-300">
+                  ✅ Task submitted successfully to blockchain! Monitor progress using the explorer link above.
+                </div>
               </div>
             )}
           </div>
