@@ -1,0 +1,14 @@
+[
+  {
+    "sconifiedImage": "ojasarora77/scoring-algorithm:0.0.2-tee-scone-5.9.1-v16-prod-c94add4ba1f6",
+    "appContractAddress": "0x7E5313CA1E86d0050B2d25deB8b92b2c57E2Dd0d",
+    "owner": "0xa5EBd895c62fB917d97C6F3E39A4562F1BE5CEee",
+    "date": "2025-09-01T09:03:51.165Z"
+  },
+  {
+    "sconifiedImage": "ojasarora77/scoring-algorithm:0.0.1-tee-scone-5.9.1-v16-prod-0defc2f3f272",
+    "appContractAddress": "0xfF9AdC4B9056329aa476DEeF4A637aD73f18E3b3",
+    "owner": "0x0F725583EE8DeA665Eba5129BF0a72f11453CbCe",
+    "date": "2025-09-01T08:35:51.522Z"
+  }
+]
