@@ -100,26 +100,28 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
         task.taskId === taskId ? { ...task, isLoadingResult: true } : task
       ))
 
-      // Use subgraph to get the IPFS hash for this specific task
-      const response = await fetch(`/api/get-task-ipfs?taskId=${taskId}`)
+      // Use new SDK-based result endpoint to get task results
+      const response = await fetch(`/api/get-task-result-sdk?taskId=${taskId}`)
       
       if (!response.ok) {
         throw new Error(`Failed to fetch task IPFS: ${response.statusText}`)
       }
 
       const data = await response.json()
-      console.log('Task IPFS data:', data)
+      console.log('Task result data from SDK:', data)
 
-      // Create result object with IPFS link
+      // Create result object with SDK data
       const parsedResult = {
         taskId: taskId,
-        ipfsHash: data.ipfsHash || 'Not available',
-        ipfsUrl: data.ipfsHash ? `https://ipfs.io/ipfs/${data.ipfsHash}` : null,
+        status: data.status || 'Unknown',
+        completed: data.completed || false,
+        results: data.results || 'Not available',
         timestamp: new Date().toISOString(),
         confidentialComputing: true,
         teeProtected: true,
         transactionHash: txHash,
-        status: 'IPFS hash retrieved'
+        ipfsHash: data.resultLocation || null,
+        message: data.message || (data.completed ? 'Task completed successfully' : 'Task still processing')
       }
 
       // Update task with the fetched result
