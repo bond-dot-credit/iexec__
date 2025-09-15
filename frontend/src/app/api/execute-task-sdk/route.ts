@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       try {
         const mrenclave = JSON.parse(app.appMREnclave)
         teeFramework = mrenclave.framework?.toLowerCase() || 'scone'
-      } catch (e) {
+      } catch {
         console.log('Could not parse mrenclave, using default scone framework')
       }
     }
@@ -82,9 +82,89 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Step 2: Create and sign a requestorder
-    let requestParams: any = {}
-    
+    // Step 2: First find a compatible workerpool to match categories
+    // Step 2a: Fetch compatible workerpool order from orderbook with better filtering
+    const workerpoolFilters = {
+      category: 1, // Prefer category 1 for longer execution time
+      minVolume: 1,
+      pageSize: 20, // Get more options for better selection
+      minTag: ['tee', teeFramework], // Ensure workerpool supports the required TEE framework
+      maxWorkerpoolPrice: utils.parseRLC('0.5 RLC') // Reasonable price filter
+    }
+
+    console.log('Fetching workerpool orders with filters:', workerpoolFilters)
+    const workerpoolOrderbook = await iexec.orderbook.fetchWorkerpoolOrderbook(workerpoolFilters)
+    let selectedCategory = 1 // Default to category 1
+
+    // Filter out the old inactive workerpool
+    const oldWorkerpool = '0x8b270a4f7cdb54e9da086ef919bf1f030071afa7'
+    if (workerpoolOrderbook.orders) {
+      workerpoolOrderbook.orders = workerpoolOrderbook.orders.filter(
+        order => order.order.workerpool.toLowerCase() !== oldWorkerpool.toLowerCase()
+      )
+      console.log(`Filtered out old workerpool, ${workerpoolOrderbook.orders.length} workerpools remaining`)
+    }
+
+    if (!workerpoolOrderbook.orders || workerpoolOrderbook.orders.length === 0) {
+      console.log('No category 1 workerpools found, trying category 0...')
+      // Fallback: try with category 0 and looser filters
+      const fallbackFilters = {
+        category: 0,
+        minVolume: 1,
+        pageSize: 20,
+        minTag: ['tee', teeFramework]
+      }
+      const fallbackOrderbook = await iexec.orderbook.fetchWorkerpoolOrderbook(fallbackFilters)
+
+      if (!fallbackOrderbook.orders || fallbackOrderbook.orders.length === 0) {
+        throw new Error(`No compatible TEE workerpools found for ${teeFramework} framework. Available workerpools may not support TEE or are offline.`)
+      }
+
+      // Filter out old workerpool from fallback results too
+      const filteredFallback = fallbackOrderbook.orders.filter(
+        order => order.order.workerpool.toLowerCase() !== oldWorkerpool.toLowerCase()
+      )
+
+      if (filteredFallback.length === 0) {
+        throw new Error(`Only old inactive workerpool found. Please wait for active workerpools to be available.`)
+      }
+
+      console.log(`Found ${filteredFallback.length} active fallback workerpool orders`)
+      workerpoolOrderbook.orders = filteredFallback
+      selectedCategory = 0 // Use category 0 to match workerpool
+    }
+
+    // Prioritize the active iExec workerpool and sort by reliability
+    const activeWorkerpool = '0x0975bfce90f4748dab6d6729c96b33a2cd5491f5' // Current active iExec workerpool
+    // oldWorkerpool already declared above
+
+    const sortedWorkerpools = workerpoolOrderbook.orders
+      .sort((a, b) => {
+        // Prioritize active workerpool
+        if (a.order.workerpool.toLowerCase() === activeWorkerpool.toLowerCase()) return -1
+        if (b.order.workerpool.toLowerCase() === activeWorkerpool.toLowerCase()) return 1
+
+        // Deprioritize old workerpool
+        if (a.order.workerpool.toLowerCase() === oldWorkerpool.toLowerCase()) return 1
+        if (b.order.workerpool.toLowerCase() === oldWorkerpool.toLowerCase()) return -1
+
+        // Sort by price for other workerpools
+        const priceA = parseInt(a.order.workerpoolprice.toString())
+        const priceB = parseInt(b.order.workerpoolprice.toString())
+        return priceA - priceB
+      })
+
+    const workerpoolorder = sortedWorkerpools[0].order
+    console.log(`Selected workerpool order (category: ${selectedCategory}, price: ${workerpoolorder.workerpoolprice}):`, {
+      workerpool: workerpoolorder.workerpool,
+      category: workerpoolorder.category,
+      tag: workerpoolorder.tag,
+      price: workerpoolorder.workerpoolprice
+    })
+
+    // Step 2b: Create request order with matching category
+    let requestParams: Record<string, unknown> = {}
+
     if (body.useProtectedData && body.protectedDataAddress) {
       // For protected data, we DO need the dataset address in request order
       // But we need to create a dataset order for it (not fetch from orderbook)
@@ -109,10 +189,10 @@ export async function POST(request: NextRequest) {
         datasetmaxprice: 0
       }
     }
-    
+
     const requestorderTemplate = await iexec.order.createRequestorder({
       app: body.iAppAddress,
-      category: 0, // Standard category
+      category: selectedCategory, // Match the workerpool category
       appmaxprice: 0, // Free app
       workerpoolmaxprice: utils.parseRLC('1 RLC'), // Maximum price for workerpool
       volume: 1, // Single task execution
@@ -148,26 +228,10 @@ export async function POST(request: NextRequest) {
       console.log('Created dataset order for protected data:', datasetorder)
     }
 
-    // Step 5: Fetch compatible workerpool order from orderbook
-    const workerpoolFilters = {
-      category: 0,
-      minVolume: 1,
-      pageSize: 10, // Minimum required page size
-      minTag: ['tee', teeFramework] // Ensure workerpool supports the required TEE framework
-    }
-    
-    console.log('Fetching workerpool orders with filters:', workerpoolFilters)
-    const workerpoolOrderbook = await iexec.orderbook.fetchWorkerpoolOrderbook(workerpoolFilters)
-
-    if (!workerpoolOrderbook.orders || workerpoolOrderbook.orders.length === 0) {
-      throw new Error('No compatible workerpool orders found in orderbook')
-    }
-
-    const workerpoolorder = workerpoolOrderbook.orders[0].order
-    console.log('Found workerpool order:', workerpoolorder)
+    // Step 5: Workerpool order already selected above, no need to fetch again
 
     // Step 6: Match orders to create a deal and trigger execution
-    const orderMatchParams: any = {
+    const orderMatchParams = {
       apporder: signedApporder,
       workerpoolorder,
       requestorder: signedRequestorder
@@ -175,7 +239,7 @@ export async function POST(request: NextRequest) {
     
     // Include dataset order if using protected data
     if (datasetorder) {
-      orderMatchParams.datasetorder = datasetorder
+      (orderMatchParams as { datasetorder?: unknown }).datasetorder = datasetorder
       console.log('Including dataset order for protected data')
     }
     
@@ -204,7 +268,7 @@ export async function POST(request: NextRequest) {
       txHash: matchOrdersResult.txHash,
       status: 'submitted',
       timestamp: new Date().toISOString(),
-      explorerUrl: `https://blockscout-bellecour.iex.ec/tx/${matchOrdersResult.txHash}`,
+      explorerUrl: `https://blockscout-bellecour.iex.ec/tx/${matchOrdersResult.txHash}`, 
       volume: matchOrdersResult.volume.toString()
     })
 

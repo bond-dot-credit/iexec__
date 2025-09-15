@@ -21,10 +21,11 @@ export default function ProofDisplay({ deal, task, ipfsHash }: ProofDisplayProps
     }
   }
 
-  const truncateHash = (hash: string, startChars: number = 10, endChars: number = 8) => {
-    if (hash.length <= startChars + endChars) return hash
-    return `${hash.substring(0, startChars)}...${hash.substring(hash.length - endChars)}`
-  }
+  // Unused function - commented out
+  // const truncateHash = (hash: string, startChars: number = 10, endChars: number = 8) => {
+  //   if (hash.length <= startChars + endChars) return hash
+  //   return `${hash.substring(0, startChars)}...${hash.substring(hash.length - endChars)}`
+  // }
 
   const explorerUrl = `https://explorer.iex.ec/bellecour/deal/${deal}`
   const ipfsUrl = ipfsHash ? `https://ipfs-gateway.v8-bellecour.iex.ec/ipfs/${ipfsHash}` : null

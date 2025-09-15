@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
 
 interface Task {
@@ -56,7 +56,7 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
   const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     if (!isConnected || !address) {
       setError('Please connect your wallet')
       return
@@ -79,8 +79,30 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
       const data = await response.json()
       console.log('Fetched task data from subgraph:', data)
 
+      // Validate and sanitize task data
+      const sanitizedTasks = (data.tasks || []).map((task: Record<string, unknown>) => ({
+        ...task,
+        // Ensure all fields are serializable and not objects
+        app: {
+          id: task.app?.id || '',
+          name: task.app?.name || '',
+          owner: task.app?.owner || '',
+          multihash: task.app?.multihash || ''
+        },
+        dataset: task.dataset ? {
+          id: task.dataset.id || '',
+          name: task.dataset.name || '',
+          owner: task.dataset.owner || '',
+          multihash: task.dataset.multihash || ''
+        } : undefined,
+        workerpool: {
+          id: task.workerpool?.id || '',
+          owner: task.workerpool?.owner || ''
+        }
+      }))
+
       // Set tasks data
-      setTasks(data.tasks || [])
+      setTasks(sanitizedTasks)
       setLastRefresh(new Date())
       
     } catch (err) {
@@ -89,7 +111,7 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
     } finally {
       setLoading(false)
     }
-  }
+  }, [isConnected, address])
 
   const fetchTaskResult = async (taskId: string, txHash: string) => {
     try {
@@ -110,7 +132,41 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
       const data = await response.json()
       console.log('Task result data from SDK:', data)
 
-      // Create result object with SDK data
+      // Create result object with SDK data and extract IPFS hash properly
+      let ipfsHash = null
+      console.log('Raw API response:', data)
+
+      // Try multiple sources for IPFS hash
+      if (data.results && typeof data.results === 'object' && data.results.url) {
+        // Extract hash from URL like "https://ipfs-gateway.v8-bellecour.iex.ec/ipfs/Qmb3zrctWhkN32vuVKfQRmWnziUQDA9wbooFnXp9YSoGUz"
+        const urlMatch = data.results.url.match(/\/ipfs\/([A-Za-z0-9]{46,})/)
+        if (urlMatch && urlMatch[1]) {
+          ipfsHash = urlMatch[1]
+          console.log('Extracted IPFS hash from results.url:', ipfsHash)
+        }
+      } else if (data.resultLocation) {
+        if (typeof data.resultLocation === 'string') {
+          // Check if it's a URL or direct hash
+          if (data.resultLocation.includes('/ipfs/')) {
+            const urlMatch = data.resultLocation.match(/\/ipfs\/([A-Za-z0-9]{46,})/)
+            ipfsHash = urlMatch ? urlMatch[1] : null
+          } else {
+            ipfsHash = data.resultLocation
+          }
+        } else if (typeof data.resultLocation === 'object' && data.resultLocation !== null) {
+          // Extract from object structure like {storage: "hash", location: "hash"}
+          ipfsHash = data.resultLocation.location || data.resultLocation.storage || data.resultLocation.ipfs || data.resultLocation.hash || null
+        }
+      }
+
+      // Ensure it's a valid IPFS hash (starts with Qm and has correct length)
+      if (ipfsHash && typeof ipfsHash === 'string' && ipfsHash.startsWith('Qm') && ipfsHash.length >= 46) {
+        console.log('Valid IPFS hash found:', ipfsHash)
+      } else {
+        console.log('Invalid or missing IPFS hash:', ipfsHash)
+        ipfsHash = null
+      }
+
       const parsedResult = {
         taskId: taskId,
         status: data.status || 'Unknown',
@@ -120,7 +176,7 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
         confidentialComputing: true,
         teeProtected: true,
         transactionHash: txHash,
-        ipfsHash: data.resultLocation || null,
+        ipfsHash: ipfsHash,
         message: data.message || (data.completed ? 'Task completed successfully' : 'Task still processing')
       }
 
@@ -171,7 +227,7 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
     if (isConnected && address) {
       fetchTasks()
     }
-  }, [isConnected, address, iAppAddress])
+  }, [isConnected, address, iAppAddress, fetchTasks])
 
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp).toLocaleString()
@@ -260,19 +316,29 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
                       <div>
                         <span className="text-slate-400">Results:</span>
                         <span className="text-green-300 font-mono ml-2">Available</span>
+                        <div className="mt-1">
+                          <a
+                            href={`https://ipfs.iex.ec/ipfs/${task.resultsHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center space-x-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors"
+                          >
+                            <span>📁 Download Result</span>
+                          </a>
+                        </div>
                       </div>
                     )}
                   </div>
                 </div>
                 
-                {/* Fetch Result Button */}
+                {/* Fetch Result Button - Show for completed tasks without results */}
                 {task.status === 'COMPLETED' && !task.result && !task.isLoadingResult && (
                   <div className="mt-3">
                     <button
                       onClick={() => handleFetchResult(task.taskId)}
                       className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
                     >
-                      Fetch TEE Result
+                      📁 Fetch TEE Result & IPFS Download
                     </button>
                   </div>
                 )}
@@ -295,7 +361,7 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
                           <span className="text-slate-400">IPFS Hash:</span>
                           <div className="mt-1">
                             <span className="text-purple-300 font-mono text-xs bg-black/20 px-2 py-1 rounded">
-                              {task.result.ipfsHash}
+                              {String(task.result.ipfsHash)}
                             </span>
                           </div>
                         </div>
@@ -306,7 +372,7 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
                           <span className="text-slate-400">Download Result:</span>
                           <div className="mt-1">
                             <a
-                              href={`https://ipfs.iex.ec/ipfs/${task.result.ipfsHash}`}
+                              href={`https://ipfs.iex.ec/ipfs/${String(task.result.ipfsHash)}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center space-x-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors font-medium"
@@ -317,10 +383,10 @@ export default function TransactionHistory({ iAppAddress = '0x7E5313CA1E86d0050B
                         </div>
                       )}
                       
-                      {task.result.status && (
+                      {(task.result as { status?: unknown }).status && (
                         <div>
                           <span className="text-slate-400">Status:</span>
-                          <span className="text-green-300 ml-2">{task.result.status}</span>
+                          <span className="text-green-300 ml-2">{String((task.result as { status?: unknown }).status)}</span>
                         </div>
                       )}
                     </div>

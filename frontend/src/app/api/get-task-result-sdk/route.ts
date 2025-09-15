@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
         completed: true,
         results: resultContent,
         dealid: taskDetails.dealid,
-        resultLocation: taskDetails.results ? taskDetails.results : null,
+        resultLocation: taskDetails.results ? extractIPFSHash(taskDetails.results) : null,
         taskDetails: {
           app: taskDetails.app,
           dataset: taskDetails.dataset,
@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
         error: 'Failed to download results',
         errorDetails: downloadError instanceof Error ? downloadError.message : String(downloadError),
         dealid: taskDetails.dealid,
-        resultLocation: taskDetails.results ? taskDetails.results : null,
+        resultLocation: taskDetails.results ? extractIPFSHash(taskDetails.results) : null,
         taskDetails: {
           app: taskDetails.app,
           dataset: taskDetails.dataset,
@@ -136,10 +136,45 @@ function getStatusString(status: number): string {
   const statusMap: Record<number, string> = {
     0: 'UNSET',
     1: 'ACTIVE',
-    2: 'REVEALING', 
+    2: 'REVEALING',
     3: 'COMPLETED',
     4: 'FAILED',
     5: 'TIMEOUT'
   }
   return statusMap[status] || 'UNKNOWN'
+}
+
+// Helper function to extract IPFS hash from results object
+function extractIPFSHash(results: unknown): string | null {
+  console.log('Extracting IPFS hash from results:', results)
+
+  if (typeof results === 'string') {
+    // If it's already a string, return it
+    return results
+  }
+
+  if (typeof results === 'object' && results !== null) {
+    // Check for common IPFS hash properties
+    if (results.location) {
+      return String(results.location)
+    }
+    if (results.storage) {
+      return String(results.storage)
+    }
+    if (results.ipfs) {
+      return String(results.ipfs)
+    }
+    if (results.hash) {
+      return String(results.hash)
+    }
+
+    // If results has a direct IPFS hash pattern
+    const stringified = String(results)
+    if (stringified.match(/^Qm[1-9A-HJ-NP-Za-km-z]{44}$/)) {
+      return stringified
+    }
+  }
+
+  console.log('Could not extract IPFS hash from results:', results)
+  return null
 }

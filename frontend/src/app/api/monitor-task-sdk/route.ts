@@ -32,10 +32,10 @@ export async function GET(request: NextRequest) {
         console.log('Task observable created:', taskObservable)
 
         // Get the initial status
-        let currentStatus = null
+        // let currentStatus = null // Unused variable
         
         // Set up a promise that resolves when task completes or fails
-        return new Promise((resolve) => {
+        return new Promise<NextResponse>((resolve) => {
           const timeout = setTimeout(() => {
             resolve(NextResponse.json({
               taskId: taskId,
@@ -49,20 +49,21 @@ export async function GET(request: NextRequest) {
           taskObservable.subscribe({
             next: (taskUpdate) => {
               console.log('Task update received:', taskUpdate)
-              currentStatus = taskUpdate
-              
+              // currentStatus = taskUpdate // Unused variable
+
               // Check if task is complete or failed
-              if (taskUpdate.status === 3 || taskUpdate.status === 4) {
+              const taskStatus = taskUpdate.task?.status
+              if (taskStatus === 3 || taskStatus === 4) {
                 clearTimeout(timeout)
                 resolve(NextResponse.json({
                   taskId: taskId,
-                  status: getStatusString(taskUpdate.status),
-                  statusCode: taskUpdate.status,
-                  completed: taskUpdate.status === 3,
-                  failed: taskUpdate.status === 4,
-                  results: taskUpdate.status === 3 ? 'Available for download' : null,
+                  status: getStatusString(taskStatus),
+                  statusCode: taskStatus,
+                  completed: taskStatus === 3,
+                  failed: taskStatus === 4,
+                  results: taskStatus === 3 ? 'Available for download' : null,
                   taskUpdate: taskUpdate,
-                  message: taskUpdate.status === 3 ? 'Task completed successfully' : 'Task failed'
+                  message: taskStatus === 3 ? 'Task completed successfully' : 'Task failed'
                 }))
               }
             },
@@ -90,18 +91,40 @@ export async function GET(request: NextRequest) {
         const taskDetails = await iexec.task.show(taskId)
         console.log('Task details:', taskDetails)
 
+        // Check for deadline expiration
+        let isExpired = false
+        let dealDetails = null
+
+        try {
+          dealDetails = await iexec.deal.show(taskDetails.dealid)
+          // Deal object has deadline field, not endTime
+          const deadline = new Date((dealDetails as { deadline: number }).deadline * 1000)
+          const now = new Date()
+          isExpired = now > deadline
+
+          if (isExpired && taskDetails.status !== 3 && taskDetails.status !== 4) {
+            console.log(`Task ${taskId} has expired. Deadline: ${deadline}, Now: ${now}`)
+          }
+        } catch (dealError) {
+          console.log('Could not fetch deal details for deadline check:', dealError)
+        }
+
         return NextResponse.json({
           taskId: taskId,
-          status: getStatusString(taskDetails.status),
+          status: isExpired && taskDetails.status !== 3 && taskDetails.status !== 4 ? 'EXPIRED' : getStatusString(taskDetails.status),
           statusCode: taskDetails.status,
           completed: taskDetails.status === 3,
-          failed: taskDetails.status === 4,
+          failed: taskDetails.status === 4 || isExpired,
+          expired: isExpired,
           results: taskDetails.status === 3 ? 'Available for download' : null,
           dealid: taskDetails.dealid,
-          message: getStatusMessage(taskDetails.status)
+          deadline: dealDetails ? new Date((dealDetails as { deadline: number }).deadline * 1000).toISOString() : null,
+          message: isExpired && taskDetails.status !== 3 && taskDetails.status !== 4
+            ? 'Task has expired and will not complete. Try submitting a new task with a longer timeout.'
+            : getStatusMessage(taskDetails.status)
         })
 
-      } catch (showError) {
+      } catch {
         console.log('Task not found, may still be processing...')
         return NextResponse.json({
           taskId: taskId,

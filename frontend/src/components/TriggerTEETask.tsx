@@ -63,8 +63,8 @@ export default function TriggerTEETask({ onTaskComplete, onTaskStart, isLoading 
           let currentChainId;
           try {
             currentChainId = await window.ethereum.request({ method: 'eth_chainId' })
-          } catch (chainError: any) {
-            if (chainError.code === 4001) {
+          } catch (chainError: unknown) {
+            if ((chainError as { code?: number }).code === 4001) {
               console.log('User denied access to chain ID. Assuming not on Bellecour.')
               setNetworkStatus('wrong')
               return
@@ -96,9 +96,9 @@ export default function TriggerTEETask({ onTaskComplete, onTaskStart, isLoading 
           console.log('Not on Bellecour network. Current:', currentChainNumber)
           setNetworkStatus('wrong')
           
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error('Network initialization failed:', error)
-          if (error.code === 4001) {
+          if ((error as { code?: number }).code === 4001) {
             console.log('User rejected network request. Setting status to unknown.')
             setNetworkStatus('wrong')
           } else {
@@ -325,8 +325,11 @@ export default function TriggerTEETask({ onTaskComplete, onTaskStart, isLoading 
               timestamp: new Date().toISOString()
             })
             return
-          } else if (taskData.failed && taskData.status === 'FAILED') {
-            setError(`Task failed: ${taskData.message || 'Unknown error'}`)
+          } else if (taskData.failed && (taskData.status === 'FAILED' || taskData.status === 'EXPIRED')) {
+            const errorMsg = taskData.status === 'EXPIRED'
+              ? `Task expired: ${taskData.message || 'Task deadline passed. Try again with a longer timeout.'}`
+              : `Task failed: ${taskData.message || 'Unknown error'}`
+            setError(errorMsg)
             setCurrentTaskId(null)
             setCurrentTxHash(null)
             setExplorerUrl(null)
@@ -490,10 +493,10 @@ export default function TriggerTEETask({ onTaskComplete, onTaskStart, isLoading 
                           }
                         }, 1500)
                         
-                      } catch (error: any) {
+                      } catch (error: unknown) {
                         console.error('Manual network switch failed:', error)
-                        console.error('Error code:', error?.code)
-                        console.error('Error message:', error?.message)
+                        console.error('Error code:', (error as { code?: unknown })?.code)
+                        console.error('Error message:', (error as { message?: unknown })?.message)
                         setNetworkStatus('wrong')
                       }
                     }}
@@ -528,7 +531,7 @@ export default function TriggerTEETask({ onTaskComplete, onTaskStart, isLoading 
                           setNetworkStatus('wrong')
                         }
                         
-                      } catch (error: any) {
+                      } catch (error: unknown) {
                         console.error('Manual network check failed:', error)
                         setNetworkStatus('wrong')
                       }
