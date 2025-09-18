@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Process the tasks to match our interface
-    const tasks = (data.data?.tasks || []).map((task: any) => ({
+    const tasks = (data.data?.tasks || []).map((task: Record<string, unknown>) => ({
       id: task.id,
       taskId: task.id,
       dealId: task.deal?.id || 'unknown',
